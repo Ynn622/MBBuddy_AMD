@@ -19,6 +19,7 @@ pip-wheel-metadata/
 ai_models/*.gguf
 !download_model.sh
 !download_model.bat
+ai_model/
 
 # Node (frontend)
 node_modules/

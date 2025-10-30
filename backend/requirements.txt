@@ -13,6 +13,7 @@ transformers>=4.30.0
 
 # ONNX Runtime for AMD (支援 INT4 量化)
 onnxruntime>=1.16.0
+lemonade-sdk[oga-gpu]
 
 # 可選：本地 LLM 依賴（作為備用）
 # llama-cpp-python>=0.2.0
