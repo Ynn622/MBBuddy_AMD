@@ -1,0 +1,41 @@
+# 開發環境的 Docker Compose
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    image: MBBuddy_backend:latest
+    container_name: MBBuddy_backend_dev
+    ports:
+      - "0.0.0.0:8001:8000"
+    volumes:
+      - ../backend:/app/backend
+      - ../frontend/MBBuddy-frontend/public:/app/frontend/MBBuddy-frontend/public
+      # - ../ai_models:/app/ai_models  # 已移除本地模型目錄掛載
+    environment:
+      - PYTHONPATH=/app
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+    networks:
+      - MBBuddy-network
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend.dev
+    image: MBBuddy_frontend:dev
+    container_name: MBBuddy_frontend_dev
+    ports:
+      - "0.0.0.0:5173:5173"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - MBBuddy-network
+
+networks:
+  MBBuddy-network:
+    driver: bridge

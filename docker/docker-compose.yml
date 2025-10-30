@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    image: MBBuddy/backend:latest
+    container_name: MBBuddy-backend
+    ports:
+      - "0.0.0.0:8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      - PYTHONPATH=/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # 允許容器訪問主機服務
+    # volumes:
+      # - ../ai_models:/app/ai_models:ro  # 已移除本地模型目錄掛載
+    restart: unless-stopped
+    networks:
+      - MBBuddy-network
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    image: MBBuddy/frontend:latest
+    container_name: MBBuddy-frontend
+    ports:
+      - "0.0.0.0:80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - MBBuddy-network
+networks:
+  MBBuddy-network:
+    driver: bridge
