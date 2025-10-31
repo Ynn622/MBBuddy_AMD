@@ -22,19 +22,19 @@
         <span class="label">當前模型:</span>
         <span class="value">{{ currentConfig.current_model || '未載入' }}</span>
       </div>
-      <div class="config-item">
+      <!-- <div class="config-item">
         <span class="label">模型狀態:</span>
         <span class="value" :class="currentConfig.model_loaded ? 'loaded' : 'unloaded'">
           {{ currentConfig.model_loaded ? '已載入' : '未載入' }}
         </span>
-      </div>
+      </div> -->
     </div>
 
     <!-- 配置表單 -->
     <div class="config-form">
       <h3>更新配置</h3>
       
-      <div class="form-group">
+      <!-- <div class="form-group">
         <label for="baseUrl">Base URL:</label>
         <input 
           id="baseUrl"
@@ -46,7 +46,7 @@
         <small v-if="isOpenAIKey" class="auto-note">
           ⚡ 使用 OpenAI key 時會自動設定為 https://api.openai.com/v1
         </small>
-      </div>
+      </div> -->
 
       <div class="form-group">
         <label for="apiKey">API Key:</label>
@@ -127,8 +127,8 @@
         <button @click="updateConfig" class="btn-primary">
           更新配置
         </button>
-        <button @click="resetConfig" class="btn-secondary">
-          重置配置
+        <button @click="useLemonadePreset" class="btn-secondary">
+          使用 Lemonade Server (本地)
         </button>
         <button @click="loadConfig" class="btn-secondary">
           重新載入
@@ -142,7 +142,7 @@
     </div>
 
     <!-- 預設配置快捷按鈕 -->
-    <div class="presets">
+    <!-- <div class="presets">
       <h3>快速配置</h3>
       <button @click="useLemonadePreset" class="preset-btn lemonade">
         🏠 使用 Lemonade Server (本地)
@@ -150,10 +150,10 @@
       <button @click="useOpenAIPreset" class="preset-btn openai">
         🤖 使用 OpenAI API
       </button>
-    </div>
+    </div> -->
 
     <!-- 提示訊息 -->
-    <div class="info-box">
+    <!-- <div class="info-box">
       <h4>💡 提示</h4>
       <ul>
         <li>使用 <strong>OpenAI API key</strong> 時（以 <code>sk-</code> 開頭），端點會自動設定</li>
@@ -161,7 +161,7 @@
         <li><strong>其他模型</strong>使用標準端點：<code>https://api.openai.com/v1</code></li>
         <li>本地模型請使用 Lemonade Server 配置</li>
       </ul>
-    </div>
+    </div> -->
   </div>
 </template>
 
@@ -273,41 +273,44 @@ export default {
       }
     },
 
-    async resetConfig() {
-      if (!confirm('確定要重置配置到預設值嗎？')) return
+    // async resetConfig() {
+    //   if (!confirm('確定要重置配置到預設值嗎？')) return
 
-      try {
-        const response = await fetch('http://localhost:8001/ai/config/reset', {
-          method: 'POST'
-        })
+    //   try {
+    //     const response = await fetch('http://localhost:8001/ai/config/reset', {
+    //       method: 'POST'
+    //     })
 
-        if (!response.ok) throw new Error('重置失敗')
+    //     if (!response.ok) throw new Error('重置失敗')
         
-        const result = await response.json()
-        this.showMessage(result.message, 'success')
+    //     const result = await response.json()
+    //     this.showMessage(result.message, 'success')
         
-        // 重新載入配置
-        await this.loadConfig()
-      } catch (error) {
-        this.showMessage(`重置配置失敗: ${error.message}`, 'error')
-      }
-    },
+    //     // 重新載入配置
+    //     await this.loadConfig()
+    //   } catch (error) {
+    //     this.showMessage(`重置配置失敗: ${error.message}`, 'error')
+    //   }
+    // },
 
-    useLemonadePreset() {
+    async useLemonadePreset() {
+      // 填入表單資料
       this.form.base_url = 'http://localhost:8000/api'
       this.form.api_key = 'lemonade'
-      this.form.default_model = 'Llama-3.2-1B-Instruct-Hybrid'
+      this.form.default_model = 'Qwen-2.5-3B-Instruct-NPU'
       this.isOpenAIKey = false
-      this.showMessage('已填入 Lemonade Server 預設配置', 'info')
+      
+      // 直接調用更新配置
+      await this.updateConfig()
     },
 
-    useOpenAIPreset() {
-      this.form.base_url = '' // 不需要填寫，會自動設定
-      this.form.api_key = '' // 使用者需要填入自己的 key
-      this.form.default_model = 'gpt-4o-mini'
-      this.isOpenAIKey = false // 還沒輸入 key
-      this.showMessage('請填入您的 OpenAI API Key（以 sk- 開頭），URL 會自動設定', 'info')
-    },
+    // useOpenAIPreset() {
+    //   this.form.base_url = '' // 不需要填寫，會自動設定
+    //   this.form.api_key = '' // 使用者需要填入自己的 key
+    //   this.form.default_model = 'gpt-4o-mini'
+    //   this.isOpenAIKey = false // 還沒輸入 key
+    //   this.showMessage('請填入您的 OpenAI API Key（以 sk- 開頭），URL 會自動設定', 'info')
+    // },
 
     showMessage(text, type = 'info') {
       this.message = text

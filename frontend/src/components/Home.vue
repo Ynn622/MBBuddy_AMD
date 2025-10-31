@@ -9,6 +9,9 @@
           <!-- <span>互動問答平台</span> -->
         </div>
         <div class="nav-actions">
+          <button class="btn btn-icon" @click="showAIConfigPanel = true" title="AI 設定">
+            <span>⚙️</span>
+          </button>
           <button class="btn btn-outline" @click="showJoinModal = true">加入討論</button>
           <button class="btn btn-primary" @click="showCreateModal = true">建立討論室</button>
         </div>
@@ -66,6 +69,16 @@
       @show-notification="handleShowNotification"
     />
 
+    <!-- AI 配置面板 Overlay -->
+    <Transition name="overlay">
+      <div v-if="showAIConfigPanel" class="overlay" @click.self="showAIConfigPanel = false">
+        <div class="overlay-content">
+          <button class="overlay-close" @click="showAIConfigPanel = false">&times;</button>
+          <AIConfigPanel />
+        </div>
+      </div>
+    </Transition>
+
     <!-- 通知訊息 -->
     <TransitionGroup name="fade">
       <div
@@ -86,12 +99,14 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import CreateRoomModal from './CreateRoomModal.vue';
 import JoinRoomModal from './JoinRoomModal.vue';
+import AIConfigPanel from './AIConfigPanel.vue';
 
 const router = useRouter();
 
 // --- Modal 狀態 ---
 const showCreateModal = ref(false);
 const showJoinModal = ref(false);
+const showAIConfigPanel = ref(false);
 
 // --- 通知 ---
 const notifications = ref([]);
@@ -133,16 +148,118 @@ function removeNotification(i) {
   opacity: 0;
 }
 
+/* AI 配置面板 Overlay */
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.overlay-content {
+  position: relative;
+  background: white;
+  border-radius: 12px;
+  max-width: 700px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.overlay-close {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  background: transparent;
+  border: none;
+  font-size: 28px;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
+  z-index: 10;
+}
+
+.overlay-close:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+/* Overlay 動畫 */
+.overlay-enter-active,
+.overlay-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.overlay-enter-active .overlay-content,
+.overlay-leave-active .overlay-content {
+  transition: transform 0.3s ease;
+}
+
+.overlay-enter-from,
+.overlay-leave-to {
+  opacity: 0;
+}
+
+.overlay-enter-from .overlay-content,
+.overlay-leave-to .overlay-content {
+  transform: scale(0.9);
+}
+
+/* 設定按鈕樣式 */
+.btn-icon {
+  padding: 5px 12px;
+  background: transparent;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 20px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.btn-icon:hover {
+  background: #f5f5f5;
+  border-color: #007bff;
+  transform: rotate(45deg);
+}
+
+.btn-icon span {
+  display: block;
+}
+
 /* 響應式設計 - 只保留 Home.vue 頁面本身需要的 */
 @media (max-width: 480px) {
   .nav-actions {
-    flex-direction: column;
+    flex-direction: row;
     gap: 8px;
   }
   
   .nav-actions .btn {
     font-size: 12px;
     padding: 8px 12px;
+  }
+
+  .btn-icon {
+    padding: 6px 10px;
+    font-size: 18px;
+  }
+
+  .overlay-content {
+    max-width: 95%;
   }
 }
 </style>
