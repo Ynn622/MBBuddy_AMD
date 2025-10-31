@@ -2,10 +2,11 @@
 Lemonade Server 客戶端
 用於與 AMD Ryzen AI 的 Lemonade Server API 交互
 支援 OGA (ONNX Generation API) INT4 量化模型
+使用 OpenAI SDK 進行 API 調用
 """
 
 import asyncio
-import httpx
+from openai import AsyncOpenAI
 from typing import Optional, Dict, Any, AsyncGenerator
 from pathlib import Path
 import json
@@ -15,44 +16,45 @@ from .logger import get_logger
 logger = get_logger("mbbuddy.lemonade")
 
 class LemonadeClient:
-    """Lemonade Server API 客戶端"""
+    """Lemonade Server API 客戶端（使用 OpenAI SDK）"""
     
     def __init__(self):
         self.config = amd_config.get_lemonade_config()
         self.inference_config = amd_config.get_inference_config()
-        self.base_url = self.config["base_url"]
-        self.api_key = self.config.get("api_key", "")
         
-        # HTTP 客戶端
-        self._client: Optional[httpx.AsyncClient] = None
+        # base_url 需要加上 /v1 後綴（OpenAI SDK 要求）
+        raw_base_url = self.config["base_url"]
+        if not raw_base_url.endswith("/v1"):
+            self.base_url = f"{raw_base_url}/v1"
+        else:
+            self.base_url = raw_base_url
+            
+        # api_key 在 Lemonade 中必須提供但不會實際驗證
+        self.api_key = self.config.get("api_key", "lemonade")
+        
+        # OpenAI 客戶端
+        self._client: Optional[AsyncOpenAI] = None
         
         # 模型狀態
         self.current_model: Optional[str] = None
         self.is_model_loaded = False
         
-        logger.info(f"Lemonade Client 初始化: {self.base_url}")
+        logger.info(f"Lemonade Client 初始化 (OpenAI SDK): {self.base_url}")
     
     @property
-    def client(self) -> httpx.AsyncClient:
-        """獲取 HTTP 客戶端（懶加載）"""
+    def client(self) -> AsyncOpenAI:
+        """獲取 OpenAI 客戶端（懶加載）"""
         if self._client is None:
-            timeout = httpx.Timeout(
+            self._client = AsyncOpenAI(
+                base_url=self.base_url,
+                api_key=self.api_key,
                 timeout=self.config["request_timeout"],
-                connect=10.0
-            )
-            limits = httpx.Limits(
-                max_keepalive_connections=self.config["connection_pool_size"],
-                max_connections=self.config["connection_pool_size"] * 2
-            )
-            self._client = httpx.AsyncClient(
-                timeout=timeout,
-                limits=limits,
-                headers=self._get_headers()
+                max_retries=2
             )
         return self._client
     
     def _get_headers(self) -> Dict[str, str]:
-        """獲取請求標頭"""
+        """獲取請求標頭（已由 OpenAI SDK 處理，此方法保留作為參考）"""
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json"
@@ -64,14 +66,10 @@ class LemonadeClient:
     async def check_health(self) -> bool:
         """檢查 Lemonade Server 健康狀態"""
         try:
-            # Lemonade Server 沒有 /health 端點,使用 /v1/models 來檢查
-            response = await self.client.get(f"{self.base_url}/v1/models")
-            if response.status_code == 200:
-                logger.info("Lemonade Server 健康檢查通過")
-                return True
-            else:
-                logger.warning(f"Lemonade Server 健康檢查失敗: {response.status_code}")
-                return False
+            # 使用 OpenAI SDK 列出模型來檢查健康狀態
+            models = await self.client.models.list()
+            logger.info("Lemonade Server 健康檢查通過")
+            return True
         except Exception as e:
             logger.error(f"無法連接到 Lemonade Server: {e}")
             return False
@@ -79,15 +77,11 @@ class LemonadeClient:
     async def list_models(self) -> list[Dict[str, Any]]:
         """列出可用的模型"""
         try:
-            response = await self.client.get(f"{self.base_url}/v1/models")
-            if response.status_code == 200:
-                data = response.json()
-                models = data.get("data", [])
-                logger.info(f"找到 {len(models)} 個可用模型")
-                return models
-            else:
-                logger.error(f"獲取模型列表失敗: {response.status_code}")
-                return []
+            models_response = await self.client.models.list()
+            models = [{"id": model.id, "object": model.object, "created": getattr(model, "created", None)} 
+                     for model in models_response.data]
+            logger.info(f"找到 {len(models)} 個可用模型")
+            return models
         except Exception as e:
             logger.error(f"列出模型時發生錯誤: {e}")
             return []
@@ -170,76 +164,62 @@ class LemonadeClient:
             raise RuntimeError("模型未載入，請先調用 load_model()")
         
         # 構建請求參數
-        payload = {
+        params = {
             "model": self.current_model,
             "prompt": prompt,
             "max_tokens": max_tokens or self.inference_config.get("max_tokens", 2048),
             "temperature": temperature or self.inference_config.get("temperature", 0.7),
             "top_p": top_p or self.inference_config.get("top_p", 0.9),
-            "top_k": kwargs.get("top_k", self.inference_config.get("top_k", 40)),
-            "repeat_penalty": kwargs.get("repeat_penalty", self.inference_config.get("repeat_penalty", 1.1)),
             "stream": stream,
         }
         
-        # 添加其他參數
+        # 添加其他參數（OpenAI SDK 會處理 extra_body）
+        extra_params = {}
+        if "top_k" in kwargs or "top_k" in self.inference_config:
+            extra_params["top_k"] = kwargs.get("top_k", self.inference_config.get("top_k", 40))
+        if "repeat_penalty" in kwargs or "repeat_penalty" in self.inference_config:
+            extra_params["repeat_penalty"] = kwargs.get("repeat_penalty", self.inference_config.get("repeat_penalty", 1.1))
+        
         for key, value in kwargs.items():
-            if key not in payload:
-                payload[key] = value
+            if key not in params and key not in ["top_k", "repeat_penalty"]:
+                extra_params[key] = value
         
         try:
             if stream:
                 # 流式生成
-                return await self._generate_stream(payload)
+                return await self._generate_stream(params, extra_params)
             else:
                 # 非流式生成
-                response = await self.client.post(
-                    f"{self.base_url}/v1/completions",
-                    json=payload,
-                    timeout=self.config["request_timeout"]
+                response = await self.client.completions.create(
+                    **params,
+                    extra_body=extra_params if extra_params else None
                 )
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    text = data.get("choices", [{}])[0].get("text", "")
-                    logger.debug(f"生成完成，長度: {len(text)}")
-                    return text
-                else:
-                    logger.error(f"生成失敗: {response.status_code} - {response.text}")
-                    raise RuntimeError(f"生成失敗: {response.status_code}")
+                text = response.choices[0].text
+                logger.debug(f"生成完成，長度: {len(text)}")
+                return text
                     
         except Exception as e:
             logger.error(f"生成時發生錯誤: {e}")
             raise
     
-    async def _generate_stream(self, payload: Dict[str, Any]) -> str:
+    async def _generate_stream(self, params: Dict[str, Any], extra_params: Dict[str, Any]) -> str:
         """流式生成（內部方法）"""
         full_text = ""
         
         try:
-            async with self.client.stream(
-                "POST",
-                f"{self.base_url}/v1/completions",
-                json=payload
-            ) as response:
-                if response.status_code != 200:
-                    raise RuntimeError(f"流式生成失敗: {response.status_code}")
-                
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data_str = line[6:]  # 移除 "data: " 前綴
-                        
-                        if data_str.strip() == "[DONE]":
-                            break
-                        
-                        try:
-                            data = json.loads(data_str)
-                            delta = data.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
-                            full_text += content
-                        except json.JSONDecodeError:
-                            continue
-                
-                return full_text
+            stream = await self.client.completions.create(
+                **params,
+                extra_body=extra_params if extra_params else None
+            )
+            
+            async for chunk in stream:
+                if chunk.choices and len(chunk.choices) > 0:
+                    content = chunk.choices[0].text
+                    if content:
+                        full_text += content
+            
+            return full_text
                 
         except Exception as e:
             logger.error(f"流式生成時發生錯誤: {e}")
@@ -269,7 +249,7 @@ class LemonadeClient:
         if not self.is_model_loaded:
             raise RuntimeError("模型未載入，請先調用 load_model()")
         
-        payload = {
+        params = {
             "model": self.current_model,
             "messages": messages,
             "max_tokens": max_tokens or self.inference_config.get("max_tokens", 2048),
@@ -278,26 +258,20 @@ class LemonadeClient:
         }
         
         # 添加其他參數
+        extra_params = {}
         for key, value in kwargs.items():
-            if key not in payload:
-                payload[key] = value
+            if key not in params:
+                extra_params[key] = value
         
         try:
-            response = await self.client.post(
-                f"{self.base_url}/v1/chat/completions",
-                json=payload,
-                timeout=self.config["request_timeout"]
+            response = await self.client.chat.completions.create(
+                **params,
+                extra_body=extra_params if extra_params else None
             )
             
-            if response.status_code == 200:
-                data = response.json()
-                message = data.get("choices", [{}])[0].get("message", {})
-                content = message.get("content", "")
-                logger.debug(f"聊天完成，長度: {len(content)}")
-                return content
-            else:
-                logger.error(f"聊天完成失敗: {response.status_code} - {response.text}")
-                raise RuntimeError(f"聊天完成失敗: {response.status_code}")
+            content = response.choices[0].message.content
+            logger.debug(f"聊天完成，長度: {len(content)}")
+            return content
                 
         except Exception as e:
             logger.error(f"聊天完成時發生錯誤: {e}")
@@ -306,7 +280,7 @@ class LemonadeClient:
     async def close(self):
         """關閉客戶端連接"""
         if self._client:
-            await self._client.aclose()
+            await self._client.close()
             self._client = None
             logger.info("Lemonade Client 已關閉")
     
