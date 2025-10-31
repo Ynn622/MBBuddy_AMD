@@ -63,7 +63,7 @@ class AMDRyzenAIConfig:
                 "retry_attempts": 3,               # 重試次數
                 "connection_pool_size": 16,        # 連接池大小
                 "enable_streaming": True,          # 啟用流式回應
-                "default_model": "Llama-3.2-1B-Instruct-awq-g128-int4-asym-fp16-onnx-hybrid",
+                "default_model": "Qwen-2.5-3B-Instruct-NPU",
                 "organization": None,              # OpenAI organization (unused)
                 "max_retries": 3,                  # OpenAI SDK 重試次數
             }
@@ -77,7 +77,7 @@ class AMDRyzenAIConfig:
                 "retry_attempts": 2,
                 "connection_pool_size": 8,
                 "enable_streaming": True,
-                "default_model": "Llama-3.2-1B-Instruct-awq-g128-int4-asym-fp16-onnx-hybrid",
+                "default_model": "Llama-3.2-3B",
                 "organization": None,
                 "max_retries": 2,
             }

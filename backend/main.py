@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
             
             # 嘗試載入默認模型
             try:
-                default_model = "Llama-3.2-1B-Instruct-int4"
+                default_model = "Qwen-2.5-3B-Instruct-NPU"
                 logger.info(f"📥 嘗試載入默認模型: {default_model}")
                 success = await lemonade_client.load_model(default_model)
                 if success:
