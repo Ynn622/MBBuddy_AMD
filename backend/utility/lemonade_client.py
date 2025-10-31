@@ -45,12 +45,27 @@ class LemonadeClient:
     def client(self) -> AsyncOpenAI:
         """獲取 OpenAI 客戶端（懶加載）"""
         if self._client is None:
+            # 重新讀取配置（可能已被更新）
+            self.config = amd_config.get_lemonade_config()
+            raw_base_url = self.config["base_url"]
+            
+            # 確保 base_url 以 /v1 結尾
+            if not raw_base_url.endswith("/v1"):
+                self.base_url = f"{raw_base_url}/v1"
+            else:
+                self.base_url = raw_base_url
+            
+            # 更新 api_key
+            self.api_key = self.config.get("api_key", "lemonade")
+            
+            # 創建新客戶端
             self._client = AsyncOpenAI(
                 base_url=self.base_url,
                 api_key=self.api_key,
                 timeout=self.config["request_timeout"],
                 max_retries=2
             )
+            logger.info(f"OpenAI 客戶端已創建: {self.base_url}")
         return self._client
     
     def _get_headers(self) -> Dict[str, str]:
@@ -91,7 +106,7 @@ class LemonadeClient:
         載入指定的模型
         
         Args:
-            model_name: 模型名稱（例如 "Llama-3.2-1B-Instruct-int4"）
+            model_name: 模型名稱（例如 "Llama-3.2-1B-Instruct-int4" 或 "gpt-4"）
             
         Returns:
             是否載入成功
@@ -102,19 +117,21 @@ class LemonadeClient:
                 logger.info(f"模型 {model_name} 已載入")
                 return True
             
-            # 檢查模型是否在可用列表中
-            models = await self.list_models()
-            model_ids = [m.get("id") for m in models]
+            # 檢查模型是否在可用列表中（僅作為提示，不強制）
+            try:
+                models = await self.list_models()
+                model_ids = [m.get("id") for m in models]
+                
+                if model_name not in model_ids:
+                    logger.warning(f"模型 {model_name} 不在本地可用模型列表中: {model_ids}")
+                    logger.info(f"將嘗試使用模型 {model_name}（可能是 OpenAI 或其他服務的模型）")
+            except Exception as e:
+                logger.warning(f"無法獲取模型列表，將直接使用指定模型: {e}")
             
-            if model_name not in model_ids:
-                logger.error(f"模型 {model_name} 不在可用模型列表中: {model_ids}")
-                return False
-            
-            # Lemonade Server 通常不需要明確載入，模型會在首次推理時自動載入
-            # 只需標記模型為已選擇
+            # 設定模型（不論是否在列表中）
             self.current_model = model_name
             self.is_model_loaded = True
-            logger.info(f"模型 {model_name} 已設定，將在首次推理時自動載入")
+            logger.info(f"模型 {model_name} 已設定")
             return True
                 
         except Exception as e:
@@ -283,6 +300,33 @@ class LemonadeClient:
             await self._client.close()
             self._client = None
             logger.info("Lemonade Client 已關閉")
+    
+    def update_config(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
+        """
+        更新客戶端配置
+        
+        Args:
+            base_url: 新的 base URL
+            api_key: 新的 API key
+            
+        Note:
+            更新配置後需要關閉並重新創建客戶端
+        """
+        if base_url is not None:
+            # 確保 base_url 以 /v1 結尾
+            if not base_url.endswith("/v1"):
+                self.base_url = f"{base_url}/v1"
+            else:
+                self.base_url = base_url
+            logger.info(f"更新 base_url: {self.base_url}")
+        
+        if api_key is not None:
+            self.api_key = api_key
+            logger.info("更新 api_key: ****")
+        
+        # 標記需要重新創建客戶端
+        if self._client:
+            logger.info("配置已更新，客戶端將在下次使用時重新創建")
     
     async def __aenter__(self):
         """異步上下文管理器入口"""

@@ -95,7 +95,7 @@ class AMDRyzenAIConfig:
             return {
                 # AMD Ryzen AI 推薦模型（INT4 量化 ONNX 格式）
                 "recommended_models": [
-                    {"name": "Qwen-2.5-3B-Instruct-NPU"},
+                    {"name": "Llama-3.2-3B-Instruct-Hybrid"},
                     {
                         "name": "Llama-3.2-1B-Instruct-int4-hybrid",
                         "model_id": "Llama-3.2-1B-Instruct-awq-g128-int4-asym-fp16-onnx-hybrid",

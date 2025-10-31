@@ -43,6 +43,147 @@ class GenerateSingleTopicRequest(BaseModel):
     room: str
     custom_prompt: str
 
+class ConfigRequest(BaseModel):
+    """AI 服務配置請求"""
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    default_model: Optional[str] = None
+    endpoint_type: Optional[str] = None  # "standard" 或 "response"
+
+# ==================== 配置管理端點 ====================
+
+@router.get("/config")
+async def get_ai_config():
+    """獲取當前 AI 服務配置"""
+    try:
+        return {
+            "base_url": amd_config.openai_base_url,
+            "api_key_set": bool(amd_config.openai_api_key),
+            "api_key_masked": f"{amd_config.openai_api_key[:4]}****" if amd_config.openai_api_key else None,
+            "current_model": lemonade_client.current_model,
+            "model_loaded": lemonade_client.is_model_loaded,
+            "platform": "AMD Ryzen AI" if amd_config.is_amd_platform else "Generic"
+        }
+    except Exception as e:
+        logger.error(f"獲取配置失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"獲取配置失敗: {str(e)}")
+
+@router.post("/config")
+async def update_ai_config(config: ConfigRequest):
+    """
+    更新 AI 服務配置
+    
+    可以更新:
+    - base_url: API 基礎 URL (例如: http://localhost:8000/api)
+      - 如果 api_key 以 "sk-" 開頭（OpenAI key），會自動使用 https://api.openai.com/v1
+      - GPT-5 模型會自動使用 https://api.openai.com/v1/response
+    - api_key: API 密鑰
+    - default_model: 預設使用的模型
+    - endpoint_type: 端點類型 ("standard" 或 "response")
+    """
+    try:
+        updated_fields = []
+        need_reinit_client = False
+        
+        # 檢測是否為 OpenAI API key（以 "sk-" 開頭）
+        is_openai_key = config.api_key and config.api_key.startswith("sk-")
+        
+        # 檢測是否為 GPT-5 模型
+        is_gpt5_model = config.default_model and ("gpt-5" in config.default_model.lower() or "gpt5" in config.default_model.lower())
+        
+        # 更新 api_key
+        if config.api_key is not None:
+            amd_config.openai_api_key = config.api_key
+            amd_config.lemonade_api_key = config.api_key
+            updated_fields.append("api_key")
+            need_reinit_client = True
+            logger.info("更新 api_key: ****")
+        
+        # 更新 base_url（根據模型類型自動選擇）
+        if config.base_url is not None:
+            amd_config.openai_base_url = config.base_url
+            amd_config.lemonade_base_url = config.base_url
+            updated_fields.append("base_url")
+            need_reinit_client = True
+            logger.info(f"更新 base_url: {config.base_url}")
+        elif is_openai_key:
+            amd_config.openai_base_url = "https://api.openai.com/v1"
+            amd_config.lemonade_base_url = "https://api.openai.com/v1"
+            updated_fields.append("base_url (auto-standard)")
+            logger.info("檢測到 OpenAI API key，自動設定 base_url: https://api.openai.com/v1")
+            need_reinit_client = True
+        
+        # 如果更新了 base_url 或 api_key，先重新初始化客戶端
+        if need_reinit_client:
+            await lemonade_client.close()
+            lemonade_client._client = None  # 強制重新創建客戶端
+            lemonade_client.is_model_loaded = False
+            lemonade_client.current_model = None
+            logger.info("客戶端已重新初始化")
+        
+        # 更新 default_model（在重新初始化客戶端之後）
+        if config.default_model is not None:
+            # 載入新模型
+            success = await lemonade_client.load_model(config.default_model)
+            if success:
+                updated_fields.append("default_model")
+                logger.info(f"更新並載入模型: {config.default_model}")
+            else:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"無法載入模型 {config.default_model}"
+                )
+        
+        return {
+            "status": "success",
+            "message": f"已更新配置: {', '.join(updated_fields)}",
+            "updated_fields": updated_fields,
+            "current_config": {
+                "base_url": amd_config.openai_base_url,
+                "api_key_set": bool(amd_config.openai_api_key),
+                "current_model": lemonade_client.current_model,
+                "model_loaded": lemonade_client.is_model_loaded
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"更新配置失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"更新配置失敗: {str(e)}")
+
+@router.post("/config/reset")
+async def reset_ai_config():
+    """重置 AI 服務配置到預設值"""
+    try:
+        # 重置到環境變數或預設值
+        import os
+        amd_config.openai_base_url = os.getenv("OPENAI_BASE_URL", "http://localhost:8000/api")
+        amd_config.openai_api_key = os.getenv("OPENAI_API_KEY", "lemonade")
+        amd_config.lemonade_base_url = amd_config.openai_base_url
+        amd_config.lemonade_api_key = amd_config.openai_api_key
+        
+        # 關閉並重置客戶端
+        await lemonade_client.close()
+        lemonade_client._client = None
+        lemonade_client.is_model_loaded = False
+        lemonade_client.current_model = None
+        
+        logger.info("配置已重置到預設值")
+        
+        return {
+            "status": "success",
+            "message": "配置已重置到預設值",
+            "current_config": {
+                "base_url": amd_config.openai_base_url,
+                "api_key_set": bool(amd_config.openai_api_key)
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"重置配置失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"重置配置失敗: {str(e)}")
+
 # ==================== 健康檢查端點 ====================
 
 @router.get("/health")
