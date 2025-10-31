@@ -157,58 +157,43 @@ def format_timestamp_for_display(timestamp):
     except:
         return str(timestamp)
 
-# --- HOST (房主) ---
-
-# AMD 版本的資料結構 (使用 Lemonade Server 進行 AI 推理)
-ROOMS = {}
 """
-{
+ROOMS、topics、votes 的資料結構說明：
+
+ROOMS = {
     room_id: {
         "code": str,
         "title": str,
-        "created_at": float,  # timestamp
+        "created_at": float,
         "settings": {"allowQuestions": bool, "allowVoting": bool},
-        "status": str,  # NotFound, Stop, Discussion, End
-        "participants": [{"device_id": str, "nickname": str, "last_seen": float}],  # timestamp
+        "status": str,
+        "participants": int,
+        "participants_list": [{"device_id": str, "nickname": str, "last_seen": float}],
         "current_topic": str,
         "countdown": int,
-        "time_start": float,  # timestamp
-        "topic_summary": str,  # 題目摘要
-        "desired_outcome": str,  # 預期成果
-        "topic_count": int,  # 主題數量
-        "room_context": str  # 房間上下文,用於 AMD Lemonade Server 的 AI 推理
+        "time_start": float,
+        "topic_summary": str,
+        "desired_outcome": str,
+        "topic_count": int,
+        "room_context": str
     }
 }
-"""
 
-topics = {}
-"""
-{
+topics = {
     topic_id: {
         "room_id": str,
         "topic_name": str,
-        "comments": [{"id": str, "nickname": str, "content": str, "ts": float}]
+        "comments": [{"id": str, "nickname": str, "content": str, "ts": float, "device_id": str}]
     }
 }
-"""
 
-votes = {}
-"""
-{
+votes = {
     comment_id: {
         "good": [device_id1, device_id2, ...],
         "bad": [device_id1, device_id2, ...]
     }
 }
 """
-
-class RoomCreate(BaseModel):
-    title: str
-    topics: List[str] # 改為接收 topics 列表
-    topic_summary: Optional[str] = None
-    desired_outcome: Optional[str] = None
-    topic_count: int # 從前端接收主題數量
-    countdown: int = 15 * 60
 
 @router.post("/api/create_room")
 async def create_room(room: RoomCreate):

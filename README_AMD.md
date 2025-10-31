@@ -149,7 +149,7 @@ Content-Type: application/json
 
 #### 生成主題
 ```http
-POST /ai/generate_topics
+POST /ai/generate_ai_topics
 Content-Type: application/json
 
 {

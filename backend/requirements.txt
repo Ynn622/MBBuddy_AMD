@@ -6,14 +6,23 @@ reportlab
 matplotlib
 networkx
 pillow
+numpy>=1.21.6,<2.0.0
+
+# OpenAI SDK (用於 OpenAI 相容 API)
+openai>=1.0.0
 
 # AMD Ryzen AI 依賴
 huggingface-hub>=0.19.0
 transformers>=4.30.0
+torch>=2.0.0
 
-# ONNX Runtime for AMD (支援 INT4 量化)
-onnxruntime>=1.16.0
-lemonade-sdk[oga-gpu]
+# Lemonade SDK (裝置檢測和模型管理)
+lemonade-sdk>=8.1.10,<9
+
+# AMD NPU + DirectML 支援
+# 需要從本地安裝 AMD Ryzen AI SDK wheel 檔案:
+# pip install "C:\Program Files\RyzenAI\1.6.0\onnxruntime_vitisai-1.23.0-cp312-cp312-win_amd64.whl"
+# pip install "C:\Program Files\RyzenAI\1.6.0\onnxruntime_genai_directml_ryzenai-0.9.2-cp312-cp312-win_amd64.whl"
 
 # 可選：本地 LLM 依賴（作為備用）
 # llama-cpp-python>=0.2.0

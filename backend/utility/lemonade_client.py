@@ -64,7 +64,8 @@ class LemonadeClient:
     async def check_health(self) -> bool:
         """檢查 Lemonade Server 健康狀態"""
         try:
-            response = await self.client.get(f"{self.base_url}/health")
+            # Lemonade Server 沒有 /health 端點,使用 /v1/models 來檢查
+            response = await self.client.get(f"{self.base_url}/v1/models")
             if response.status_code == 200:
                 logger.info("Lemonade Server 健康檢查通過")
                 return True
@@ -107,32 +108,23 @@ class LemonadeClient:
                 logger.info(f"模型 {model_name} 已載入")
                 return True
             
-            payload = {
-                "model": model_name,
-                "config": {
-                    "precision": self.inference_config.get("precision", "int4"),
-                    "use_npu": self.inference_config.get("use_npu", True),
-                    "batch_size": self.inference_config.get("batch_size", 4),
-                }
-            }
+            # 檢查模型是否在可用列表中
+            models = await self.list_models()
+            model_ids = [m.get("id") for m in models]
             
-            logger.info(f"正在載入模型: {model_name}")
-            response = await self.client.post(
-                f"{self.base_url}/v1/models/load",
-                json=payload
-            )
-            
-            if response.status_code == 200:
-                self.current_model = model_name
-                self.is_model_loaded = True
-                logger.info(f"模型 {model_name} 載入成功")
-                return True
-            else:
-                logger.error(f"載入模型失敗: {response.status_code} - {response.text}")
+            if model_name not in model_ids:
+                logger.error(f"模型 {model_name} 不在可用模型列表中: {model_ids}")
                 return False
+            
+            # Lemonade Server 通常不需要明確載入，模型會在首次推理時自動載入
+            # 只需標記模型為已選擇
+            self.current_model = model_name
+            self.is_model_loaded = True
+            logger.info(f"模型 {model_name} 已設定，將在首次推理時自動載入")
+            return True
                 
         except Exception as e:
-            logger.error(f"載入模型時發生錯誤: {e}")
+            logger.error(f"設定模型時發生錯誤: {e}")
             return False
     
     async def unload_model(self) -> bool:
@@ -141,15 +133,12 @@ class LemonadeClient:
             if not self.is_model_loaded:
                 return True
             
-            response = await self.client.post(f"{self.base_url}/v1/models/unload")
-            if response.status_code == 200:
-                self.current_model = None
-                self.is_model_loaded = False
-                logger.info("模型已卸載")
-                return True
-            else:
-                logger.error(f"卸載模型失敗: {response.status_code}")
-                return False
+            # Lemonade Server 可能不支援明確卸載
+            # 只需清除本地狀態
+            self.current_model = None
+            self.is_model_loaded = False
+            logger.info("模型已卸載（本地狀態清除）")
+            return True
         except Exception as e:
             logger.error(f"卸載模型時發生錯誤: {e}")
             return False

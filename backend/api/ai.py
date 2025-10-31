@@ -157,41 +157,41 @@ async def summary_ai(req: SummaryRequest):
         logger.error(f"總結生成失敗: {e}")
         raise HTTPException(status_code=500, detail=f"總結生成失敗: {str(e)}")
 
-@router.post("/generate_topics")
-async def generate_topics_ai(req: TopicGenerationRequest):
-    """根據討論室內容生成主題建議"""
-    try:
-        if req.room not in ROOMS:
-            return {"topics": [], "message": "找不到指定的討論室"}
+# @router.post("/generate_topics")
+# async def generate_topics_ai(req: TopicGenerationRequest):
+#     """根據討論室內容生成主題建議"""
+#     try:
+#         if req.room not in ROOMS:
+#             return {"topics": [], "message": "找不到指定的討論室"}
 
-        # 建立主題生成 prompt
-        prompt = prompt_builder.build_topic_generation_prompt(req.room)
+#         # 建立主題生成 prompt
+#         prompt = prompt_builder.build_topic_generation_prompt(req.room)
 
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
+#         # 確保模型已載入
+#         if not lemonade_client.is_model_loaded:
+#             default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
+#             success = await lemonade_client.load_model(default_model)
+#             if not success:
+#                 raise HTTPException(status_code=500, detail="模型載入失敗")
 
-        # 生成主題
-        raw_text = await lemonade_client.generate(
-            prompt=prompt,
-            max_tokens=1024,
-            temperature=0.8
-        )
+#         # 生成主題
+#         raw_text = await lemonade_client.generate(
+#             prompt=prompt,
+#             max_tokens=1024,
+#             temperature=0.8
+#         )
 
-        # 解析主題
-        suggested_topics = topic_parser.parse_topics(raw_text)
+#         # 解析主題
+#         suggested_topics = topic_parser.parse_topics(raw_text)
 
-        return {
-            "topics": suggested_topics,
-            "raw_response": raw_text
-        }
+#         return {
+#             "topics": suggested_topics,
+#             "raw_response": raw_text
+#         }
 
-    except Exception as e:
-        logger.error(f"主題生成失敗: {e}")
-        raise HTTPException(status_code=500, detail=f"主題生成失敗: {str(e)}")
+#     except Exception as e:
+#         logger.error(f"主題生成失敗: {e}")
+#         raise HTTPException(status_code=500, detail=f"主題生成失敗: {str(e)}")
 
 @router.post("/generate_ai_topics")
 async def generate_ai_topics(req: GenerateTopicsRequest):
@@ -224,6 +224,7 @@ async def generate_ai_topics(req: GenerateTopicsRequest):
             temperature=0.8
         )
 
+        print(raw_text)
         # 解析主題
         generated_topics = topic_parser.parse_topics_from_response(raw_text, topic_count)
         return {"topics": generated_topics}
@@ -236,12 +237,18 @@ async def generate_ai_topics(req: GenerateTopicsRequest):
 async def generate_single_topic(req: GenerateSingleTopicRequest):
     """根據討論室和自訂提示，使用 AI 生成單一議程主題"""
     try:
+        room_code = req.room.strip()
+        logger.info(f"收到單一主題生成請求，房間代碼: {room_code}")
+        logger.debug(f"當前 ROOMS 內容: {list(ROOMS.keys())}")
+        
         # 檢查討論室是否存在
-        if req.room not in ROOMS:
-            return {"topic": "錯誤：找不到指定的討論室。"}
-
+        if room_code not in ROOMS:
+            logger.error(f"找不到房間 {room_code}，現有房間: {list(ROOMS.keys())}")
+            return {"topic": f"錯誤：找不到指定的討論室 '{room_code}'。"
+        }
+        
         # 建立 prompt
-        prompt = prompt_builder.build_single_topic_generation_prompt(req.room, req.custom_prompt)
+        prompt = prompt_builder.build_single_topic_generation_prompt(room_code, req.custom_prompt)
         
         if prompt.startswith("錯誤"):
             return {"topic": prompt}
@@ -249,21 +256,24 @@ async def generate_single_topic(req: GenerateSingleTopicRequest):
         # 確保模型已載入
         if not lemonade_client.is_model_loaded:
             default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
+            logger.info(f"載入預設模型: {default_model}")
             success = await lemonade_client.load_model(default_model)
             if not success:
                 raise HTTPException(status_code=500, detail="模型載入失敗")
 
         # 生成主題
+        logger.info(f"開始生成主題，prompt 長度: {len(prompt)}")
         topic = await lemonade_client.generate(
             prompt=prompt,
             max_tokens=512,
             temperature=0.8
         )
 
+        logger.info(f"主題生成完成: {topic[:50]}...")
         return {"topic": topic.strip()}
 
     except Exception as e:
-        logger.error(f"單一主題生成失敗: {e}")
+        logger.error(f"單一主題生成失敗: {e}", exc_info=True)
         return {"topic": f"AI 主題生成失敗: {str(e)}"}
 
 @router.post("/generate_questions")

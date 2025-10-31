@@ -467,7 +467,7 @@ async function generateAndDisplayTopics() {
 
   try {
     // 2. 呼叫 AI 生成主題
-    const topicResp = await fetch(`${API_BASE_URL}/ai/generate_topics`, {
+    const topicResp = await fetch(`${API_BASE_URL}/ai/generate_ai_topics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -510,7 +510,7 @@ async function generateAndDisplayTopics() {
 
     // 5. 清理臨時主題（載入狀態和錯誤訊息）
     try {
-      const cleanResp = await fetch(`${API_BASE_URL}/ai/clean_temp_topics`, {
+      const cleanResp = await fetch(`${API_BASE_URL}/ai/clean_generate_single_topics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ room: roomCode.value })
@@ -534,7 +534,7 @@ async function generateAndDisplayTopics() {
     
     // 即使生成失敗，也嘗試清理可能存在的臨時主題
     try {
-      await fetch(`${API_BASE_URL}/ai/clean_temp_topics`, {
+      await fetch(`${API_BASE_URL}/ai/clean_generate_single_topics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ room: roomCode.value })
@@ -742,7 +742,7 @@ async function cleanTempTopics() {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/ai/clean_temp_topics`, {
+    const response = await fetch(`${API_BASE_URL}/ai/clean_generate_single_topics`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room: roomCode.value })
@@ -1152,7 +1152,7 @@ async function generateAndReplaceTopic() {
 
     // 清理臨時主題
     try {
-      const cleanResp = await fetch(`${API_BASE_URL}/ai/clean_temp_topics`, {
+      const cleanResp = await fetch(`${API_BASE_URL}/ai/clean_generate_single_topics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ room: roomCode.value })
@@ -1176,7 +1176,7 @@ async function generateAndReplaceTopic() {
     
     // 即使生成失敗，也嘗試清理可能存在的臨時主題
     try {
-      await fetch(`${API_BASE_URL}/ai/clean_temp_topics`, {
+      await fetch(`${API_BASE_URL}/ai/clean_generate_single_topics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ room: roomCode.value })
@@ -1257,7 +1257,7 @@ async function createNewTopicWithAI(aiPrompt) {
 
     // 清理臨時主題
     try {
-      const cleanResp = await fetch(`${API_BASE_URL}/ai/clean_temp_topics`, {
+      const cleanResp = await fetch(`${API_BASE_URL}/ai/clean_generate_single_topics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ room: roomCode.value })
@@ -1279,7 +1279,7 @@ async function createNewTopicWithAI(aiPrompt) {
     
     // 即使生成失敗，也嘗試清理可能存在的臨時主題
     try {
-      await fetch(`${API_BASE_URL}/ai/clean_temp_topics`, {
+      await fetch(`${API_BASE_URL}/ai/clean_generate_single_topics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ room: roomCode.value })

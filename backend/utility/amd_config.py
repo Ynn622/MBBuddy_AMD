@@ -1,7 +1,7 @@
 """
 AMD Ryzen AI 平台優化配置
 針對 AMD Ryzen AI PC 的 AI 推理優化
-使用 AMD 的 CPU+GPU 及 Lemonade Server
+使用 OpenAI 相容 API (Lemonade Server)
 """
 
 import os
@@ -18,9 +18,15 @@ class AMDRyzenAIConfig:
         self.platform_info = self._detect_platform()
         self.is_amd_platform = self._is_amd_platform()
         
-        # Lemonade Server 配置
-        self.lemonade_base_url = os.getenv("LEMONADE_SERVER_URL", "http://localhost:8080")
-        self.lemonade_api_key = os.getenv("LEMONADE_API_KEY", "")
+        # OpenAI 相容 API 配置 (Lemonade Server)
+        # Lemonade Server API 結構: http://localhost:8000/api
+        # 完整端點: /api/v1/models, /api/v1/chat/completions
+        self.openai_base_url = os.getenv("OPENAI_BASE_URL", "http://localhost:8000/api")
+        self.openai_api_key = os.getenv("OPENAI_API_KEY", "lemonade")  # required but unused
+        
+        # 向後相容:舊的 Lemonade 屬性名稱
+        self.lemonade_base_url = self.openai_base_url
+        self.lemonade_api_key = self.openai_api_key
         
     def _detect_platform(self) -> Dict[str, Any]:
         """檢測平台信息"""
@@ -46,125 +52,152 @@ class AMDRyzenAIConfig:
         
         return False
     
-    def get_lemonade_config(self) -> Dict[str, Any]:
-        """獲取 Lemonade Server 配置"""
+    def get_openai_config(self) -> Dict[str, Any]:
+        """獲取 OpenAI 相容 API 配置"""
         if self.is_amd_platform:
             return {
-                "base_url": self.lemonade_base_url,
-                "api_key": self.lemonade_api_key,
+                "base_url": self.openai_base_url,
+                "api_key": self.openai_api_key,
                 "max_concurrent_requests": 8,      # AMD Ryzen AI 可同時處理多個請求
-                "request_timeout": 30.0,           # 請求超時（秒）
+                "request_timeout": 120.0,          # 請求超時（秒）- OpenAI 標準
                 "retry_attempts": 3,               # 重試次數
                 "connection_pool_size": 16,        # 連接池大小
-                "enable_batching": True,           # 啟用批處理
-                "batch_size": 4,                   # 批處理大小
-                "optimization_level": "high",      # 優化級別
-                "enable_caching": True,            # 啟用結果緩存
-                "cache_ttl": 600,                  # 緩存生存時間（秒）
-                "use_gpu_acceleration": True,      # 使用 GPU 加速
-                "npu_enabled": True,               # 啟用 NPU (如果可用)
+                "enable_streaming": True,          # 啟用流式回應
+                "default_model": "Llama-3.2-1B-Instruct-awq-g128-int4-asym-fp16-onnx-hybrid",
+                "organization": None,              # OpenAI organization (unused)
+                "max_retries": 3,                  # OpenAI SDK 重試次數
             }
         else:
             # 通用配置
             return {
-                "base_url": self.lemonade_base_url,
-                "api_key": self.lemonade_api_key,
+                "base_url": self.openai_base_url,
+                "api_key": self.openai_api_key,
                 "max_concurrent_requests": 4,
-                "request_timeout": 30.0,
+                "request_timeout": 60.0,
                 "retry_attempts": 2,
                 "connection_pool_size": 8,
-                "enable_batching": False,
-                "optimization_level": "medium",
-                "enable_caching": True,
-                "cache_ttl": 300,
-                "use_gpu_acceleration": False,
-                "npu_enabled": False,
+                "enable_streaming": True,
+                "default_model": "Llama-3.2-1B-Instruct-awq-g128-int4-asym-fp16-onnx-hybrid",
+                "organization": None,
+                "max_retries": 2,
             }
     
+    def get_lemonade_config(self) -> Dict[str, Any]:
+        """
+        向後相容方法：返回 OpenAI 相容 API 配置
+        (原 Lemonade Server 現在使用 OpenAI 相容 API)
+        """
+        return self.get_openai_config()
+    
     def get_model_config(self) -> Dict[str, Any]:
-        """獲取推薦的 AMD 優化模型配置"""
+        """獲取推薦的 AMD 優化模型配置 (OpenAI Chat Completion 格式)"""
         if self.is_amd_platform:
             return {
-                # AMD Ryzen AI 推薦模型（INT4 量化）
+                # AMD Ryzen AI 推薦模型（INT4 量化 ONNX 格式）
                 "recommended_models": [
+                    {"name": "Qwen-2.5-3B-Instruct-NPU"},
                     {
-                        "name": "Llama-3.2-1B-Instruct-int4",
+                        "name": "Llama-3.2-1B-Instruct-int4-hybrid",
+                        "model_id": "Llama-3.2-1B-Instruct-awq-g128-int4-asym-fp16-onnx-hybrid",
                         "repo_id": "amd/Llama-3.2-1B-Instruct-onnx-ryzen-strix",
                         "description": "Llama 3.2 1B INT4 量化，針對 AMD Ryzen AI 優化",
                         "size": "1.2GB",
                         "performance": "excellent",
                         "recommended": True,
                         "quantization": "int4",
-                        "format": "onnx"
+                        "format": "onnx",
+                        "supports_chat": True,
+                        "supports_streaming": True,
                     },
                     {
-                        "name": "Llama-3.2-3B-Instruct-int4",
+                        "name": "Llama-3.2-3B-Instruct-int4-hybrid",
+                        "model_id": "Llama-3.2-3B-Instruct-awq-g128-int4-asym-fp16-onnx-hybrid",
                         "repo_id": "amd/Llama-3.2-3B-Instruct-onnx-ryzen-strix",
                         "description": "Llama 3.2 3B INT4 量化，更強大的推理能力",
                         "size": "2.8GB",
                         "performance": "excellent",
                         "recommended": True,
                         "quantization": "int4",
-                        "format": "onnx"
+                        "format": "onnx",
+                        "supports_chat": True,
+                        "supports_streaming": True,
                     },
                     {
                         "name": "Phi-3.5-mini-instruct-int4",
+                        "model_id": "Phi-3.5-mini-instruct-int4-onnx-hybrid",
                         "repo_id": "microsoft/Phi-3.5-mini-instruct",
                         "description": "Microsoft Phi-3.5 Mini INT4，輕量級高效模型",
                         "size": "2.5GB",
                         "performance": "very_good",
                         "recommended": True,
                         "quantization": "int4",
-                        "format": "onnx"
+                        "format": "onnx",
+                        "supports_chat": True,
+                        "supports_streaming": True,
                     },
                     {
                         "name": "Qwen2.5-1.5B-Instruct-int4",
+                        "model_id": "Qwen2.5-1.5B-Instruct-int4-onnx-hybrid",
                         "repo_id": "Qwen/Qwen2.5-1.5B-Instruct",
                         "description": "Qwen2.5 1.5B INT4 量化版本",
                         "size": "1.5GB",
                         "performance": "good",
                         "recommended": False,
                         "quantization": "int4",
-                        "format": "onnx"
+                        "format": "onnx",
+                        "supports_chat": True,
+                        "supports_streaming": True,
                     }
                 ],
+                # OpenAI Chat Completion API 默認參數
+                "default_params": {
+                    "max_tokens": 2048,
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "frequency_penalty": 0.0,
+                    "presence_penalty": 0.0,
+                    "stream": True,
+                    "n": 1,
+                },
                 "optimal_quantization": "int4",        # AMD Ryzen AI 最佳量化級別
                 "max_model_size": "4GB",               # 最大模型大小
                 "concurrent_models": 2,                # 同時運行模型數
                 "use_hybrid_inference": True,          # 使用混合推理 (CPU+GPU+NPU)
-                "max_tokens": 2048,                    # 最大生成 tokens
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "top_k": 40,
-                "repeat_penalty": 1.1,
             }
         else:
             return {
                 "recommended_models": [
                     {
                         "name": "Llama-3.2-1B-Instruct",
+                        "model_id": "Llama-3.2-1B-Instruct",
                         "repo_id": "meta-llama/Llama-3.2-1B-Instruct",
                         "description": "輕量級模型，適合普通硬件",
                         "size": "2.5GB",
                         "performance": "good",
                         "recommended": True,
                         "quantization": "fp16",
-                        "format": "gguf"
+                        "format": "gguf",
+                        "supports_chat": True,
+                        "supports_streaming": True,
                     }
                 ],
+                "default_params": {
+                    "max_tokens": 1024,
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "frequency_penalty": 0.0,
+                    "presence_penalty": 0.0,
+                    "stream": False,
+                    "n": 1,
+                },
                 "optimal_quantization": "q4_0",
                 "max_model_size": "4GB",
                 "concurrent_models": 1,
                 "use_hybrid_inference": False,
-                "max_tokens": 1024,
-                "temperature": 0.7,
-                "top_p": 0.9,
-                "top_k": 40,
-                "repeat_penalty": 1.1,
             }
     
     def get_inference_config(self) -> Dict[str, Any]:
-        """獲取推理配置"""
+        """獲取推理配置 (OpenAI API 格式)"""
         model_config = self.get_model_config()
         
         if self.is_amd_platform:
@@ -175,9 +208,6 @@ class AMDRyzenAIConfig:
                 "npu_priority": "high",                # NPU 優先級
                 "gpu_memory_fraction": 0.8,            # GPU 記憶體使用比例
                 "cpu_threads": 8,                      # CPU 線程數
-                "batch_size": 4,                       # 批次大小
-                "max_batch_delay_ms": 100,             # 最大批次延遲
-                "enable_dynamic_batching": True,       # 動態批次處理
                 "enable_tensor_parallelism": True,     # 張量並行
                 "precision": "int4",                   # 精度模式
                 "enable_kv_cache": True,               # KV 緩存
@@ -189,8 +219,6 @@ class AMDRyzenAIConfig:
                 "inference_mode": "cpu",
                 "use_npu": False,
                 "cpu_threads": 4,
-                "batch_size": 1,
-                "enable_dynamic_batching": False,
                 "precision": "fp16",
                 "enable_kv_cache": True,
                 "kv_cache_size": 1024,
@@ -228,15 +256,18 @@ class AMDRyzenAIConfig:
         models = self.get_model_config()["recommended_models"]
         
         for model in models:
-            if model["name"] == model_name:
+            if model["name"] == model_name or model.get("model_id") == model_name:
                 return {
                     "name": model["name"],
+                    "model_id": model.get("model_id", model["name"]),
                     "repo_id": model["repo_id"],
                     "size": model["size"],
                     "quantization": model["quantization"],
                     "format": model["format"],
                     "download_url": f"https://huggingface.co/{model['repo_id']}",
-                    "local_path": f"ai_models/{model_name}",
+                    "local_path": f"ai_models/{model['name']}",
+                    "supports_chat": model.get("supports_chat", True),
+                    "supports_streaming": model.get("supports_streaming", True),
                 }
         
         return None
@@ -245,13 +276,14 @@ class AMDRyzenAIConfig:
         """驗證 AMD Ryzen AI 環境"""
         validation = {
             "amd_platform_detected": self.is_amd_platform,
-            "lemonade_server_configured": bool(self.lemonade_base_url),
+            "openai_api_configured": bool(self.openai_base_url),
             "python_version_compatible": True,  # Python 3.8+
         }
         
         # 檢查必要的環境變量
         if self.is_amd_platform:
-            validation["lemonade_server_url_set"] = bool(self.lemonade_base_url)
+            validation["openai_base_url_set"] = bool(self.openai_base_url)
+            validation["openai_api_key_set"] = bool(self.openai_api_key)
         
         return validation
     
@@ -259,13 +291,14 @@ class AMDRyzenAIConfig:
         """獲取平台信息摘要"""
         info = [
             "=" * 60,
-            "AMD Ryzen AI 平台配置",
+            "AMD Ryzen AI 平台配置 (OpenAI 相容 API)",
             "=" * 60,
             f"系統: {self.platform_info['system']}",
             f"架構: {self.platform_info['machine']}",
             f"處理器: {self.platform_info['processor']}",
             f"AMD 平台: {'是' if self.is_amd_platform else '否'}",
-            f"Lemonade Server: {self.lemonade_base_url}",
+            f"OpenAI API Base URL: {self.openai_base_url}",
+            f"API Key: {'已設定' if self.openai_api_key else '未設定'}",
             "=" * 60,
         ]
         

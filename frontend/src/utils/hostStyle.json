@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "created": "2024-08-30T00:00:00.000Z",
+  "totalMeetings": 1,
+  "lastUpdated": "2025-10-31T15:25:09.398Z",
+  "styles": {
+    "democratic": 0,
+    "efficient": 0,
+    "engaging": 1,
+    "structured": 0
+  },
+  "patterns": {
+    "avgParticipants": 0,
+    "avgComments": 1,
+    "avgInteraction": 1,
+    "avgBalance": 1
+  },
+  "recentMeetings": [
+    {
+      "timestamp": "2025-10-31T15:25:09.398Z",
+      "meetingNumber": 1,
+      "participantCount": 0,
+      "commentCount": 1,
+      "interactionLevel": 1,
+      "participantBalance": 1,
+      "avgCommentLength": 6,
+      "hasAISummaries": true,
+      "uniqueParticipants": 1
+    }
+  ],
+  "currentPrompt": {
+    "timestamp": "2025-10-31T15:25:09.398Z",
+    "meetingCount": 1,
+    "iterationCount": 1,
+    "dominantStyle": "engaging",
+    "styleStrength": 100,
+    "trend": null,
+    "text": "【第 1 次討論風格分析】\n\n🎯 主要風格: 擅長營造互動氛圍，激發參與者積極性 (100% 傾向)\n\n📊 當前表現:\n• 平均參與者: 0.0 人\n• 平均討論量: 1.0 條留言\n• 互動活躍度: 100%\n• 參與平衡度: 100%\n\n\n\n💡 成功營造了活躍且平衡的討論環境"
+  },
+  "metadata": {
+    "hostId": "host_default",
+    "userAgent": "MBBuddy_Host",
+    "iterationCount": 1
+  }
+}

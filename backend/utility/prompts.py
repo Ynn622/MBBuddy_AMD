@@ -237,65 +237,103 @@ class TopicParser:
         cleaned_text = re.sub(r'```(json)?\s*', '', cleaned_text)
         cleaned_text = cleaned_text.strip('`').strip()
         
-        # 移除常見的無效詞語
-        invalid_patterns = [
-            r'\bjson\b',           # 單獨的 "json" 詞
-            r'\b範例\b',           # "範例" 詞
-            r'\b例如\b',           # "例如" 詞  
-            r'\b格式\b',           # "格式" 詞
-            r'^\s*正確範例.*$',     # 整行範例說明
-            r'^\s*錯誤範例.*$',     # 整行錯誤說明
-        ]
-        
-        for pattern in invalid_patterns:
-            cleaned_text = re.sub(pattern, '', cleaned_text, flags=re.MULTILINE | re.IGNORECASE)
+        # 收集所有找到的主題（用於去重）
+        all_topics = []
         
         try:
-            # 步驟 1: 找到最外層的 JSON 陣列
-            start_index = cleaned_text.find('[')
-            end_index = cleaned_text.rfind(']') + 1
+            # 策略 1: 找出所有 JSON 陣列
+            # 使用正則表達式找到所有完整的 JSON 陣列
+            json_pattern = r'\[(?:[^\[\]]*(?:"[^"]*"[^\[\]]*)*)*\]'
+            json_matches = re.findall(json_pattern, cleaned_text)
             
-            if start_index != -1 and end_index != 0:
-                json_str = cleaned_text[start_index:end_index]
-                initial_topics = json.loads(json_str)
-                
-                # 使用遞迴函式進行徹底的攤平與清理
-                generated_topics = TopicParser.flatten_and_clean_topics(initial_topics)
-            else:
-                raise ValueError("找不到 JSON 陣列結構")
-
-        except (json.JSONDecodeError, ValueError):
-            # 備用方案：按行分割並清理
-            lines = cleaned_text.split('\n')
-            generated_topics = []
+            for json_str in json_matches:
+                try:
+                    parsed = json.loads(json_str)
+                    if isinstance(parsed, list):
+                        # 遞迴攤平
+                        flat_topics = TopicParser.flatten_and_clean_topics(parsed)
+                        all_topics.extend(flat_topics)
+                except json.JSONDecodeError:
+                    continue
             
-            for line in lines:
-                line = line.strip().lstrip('-*').lstrip('123456789.').strip()
-                # 過濾掉空行和無效內容
-                if (line and 
-                    line not in ['[', ']', ','] and 
-                    not line.lower().startswith(('json', '範例', '例如', '格式')) and
-                    len(line) > 3):  # 主題至少要3個字符
-                    generated_topics.append(line)
+        except Exception as e:
+            pass
         
-        # 最終清理：確保主題質量
-        final_topics = []
-        for topic in generated_topics:
-            if isinstance(topic, str):
-                topic = topic.strip(' "\'')  # 移除多餘的引號和空格
-                # 過濾掉明顯的無效主題
-                invalid_topics = [
-                    'json', '範例', '例如', '格式', 'example',
-                    '請回答', '主題', '討論', '討論', '生成',
-                    '主題一', '主題二', '主題三', '主題1', '主題2', '主題3'
-                ]
+        # 策略 2: 如果 JSON 解析失敗或結果不足，使用行解析
+        if len(all_topics) < topic_count:
+            lines = cleaned_text.split('\n')
+            for line in lines:
+                # 清理行內容
+                line = line.strip()
+                # 移除列表標記
+                line = re.sub(r'^[-*•]\s*', '', line)
+                line = re.sub(r'^\d+[\.)]\s*', '', line)
+                # 移除引號
+                line = line.strip(' "\'"')
                 
-                if (len(topic) >= 4 and 
-                    topic.lower() not in invalid_topics and
-                    not topic.startswith('[') and 
-                    not topic.endswith(']') and
-                    not any(invalid in topic for invalid in ['請回答', '主題一', '主題二', '主題三'])):
-                    final_topics.append(topic)
+                # 過濾有效主題
+                if (line and 
+                    len(line) >= 4 and
+                    not line.startswith('[') and 
+                    not line.endswith(']') and
+                    not line.startswith('{') and
+                    '以下是' not in line and
+                    '符合條件' not in line):
+                    all_topics.append(line)
+        
+        # 最終清理和去重
+        seen = set()
+        final_topics = []
+        
+        # 定義無效關鍵詞
+        invalid_keywords = [
+            'json', '範例', '例如', '格式', 'example',
+            '請回答', '以下是', '符合條件', '主題：',
+            '主題一', '主題二', '主題三', 
+            '主題1', '主題2', '主題3',
+            '主題 1', '主題 2', '主題 3',
+            '討論主題', '議程主題'
+        ]
+        
+        for topic in all_topics:
+            if not isinstance(topic, str):
+                continue
+                
+            # 深度清理
+            topic = topic.strip(' "\'"[]{}、，。')
+            
+            # 移除冒號後的內容（如 "主題："）
+            if '：' in topic or ':' in topic:
+                parts = re.split('[：:]', topic)
+                if len(parts) > 1:
+                    topic = parts[-1].strip()
+            
+            # 檢查主題質量
+            if len(topic) < 4 or len(topic) > 50:
+                continue
+            
+            # 檢查是否包含無效關鍵詞
+            topic_lower = topic.lower()
+            if any(keyword.lower() in topic_lower for keyword in invalid_keywords):
+                continue
+            
+            # 檢查是否純數字或特殊字符
+            if topic.isdigit() or not any(c.isalnum() for c in topic):
+                continue
+            
+            # 去重（使用標準化後的主題進行比較）
+            normalized = topic.strip().replace(' ', '').replace('　', '')
+            if normalized not in seen and len(normalized) >= 4:
+                seen.add(normalized)
+                final_topics.append(topic)
+                
+                # 達到所需數量就停止
+                if len(final_topics) >= topic_count:
+                    break
+        
+        # 如果還是不夠，返回錯誤提示
+        if len(final_topics) == 0:
+            return [f"無法從 AI 回應中解析出有效主題，原始回應：{raw_text[:100]}..."]
         
         return final_topics[:topic_count]
 
