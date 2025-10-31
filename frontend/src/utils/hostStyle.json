@@ -1,8 +1,8 @@
 {
   "version": "1.0",
   "created": "2024-08-30T00:00:00.000Z",
-  "totalMeetings": 1,
-  "lastUpdated": "2025-10-31T15:25:09.398Z",
+  "totalMeetings": 3,
+  "lastUpdated": "2025-10-31T20:59:52.356Z",
   "styles": {
     "democratic": 0,
     "efficient": 0,
@@ -11,8 +11,8 @@
   },
   "patterns": {
     "avgParticipants": 0,
-    "avgComments": 1,
-    "avgInteraction": 1,
+    "avgComments": 0.3333333333333333,
+    "avgInteraction": 0.3333333333333333,
     "avgBalance": 1
   },
   "recentMeetings": [
@@ -26,20 +26,42 @@
       "avgCommentLength": 6,
       "hasAISummaries": true,
       "uniqueParticipants": 1
+    },
+    {
+      "timestamp": "2025-10-31T20:58:03.361Z",
+      "meetingNumber": 2,
+      "participantCount": 0,
+      "commentCount": 0,
+      "interactionLevel": 0,
+      "participantBalance": 1,
+      "avgCommentLength": 0,
+      "hasAISummaries": false,
+      "uniqueParticipants": 0
+    },
+    {
+      "timestamp": "2025-10-31T20:59:52.356Z",
+      "meetingNumber": 3,
+      "participantCount": 0,
+      "commentCount": 0,
+      "interactionLevel": 0,
+      "participantBalance": 1,
+      "avgCommentLength": 0,
+      "hasAISummaries": false,
+      "uniqueParticipants": 0
     }
   ],
   "currentPrompt": {
-    "timestamp": "2025-10-31T15:25:09.398Z",
-    "meetingCount": 1,
-    "iterationCount": 1,
+    "timestamp": "2025-10-31T20:59:52.356Z",
+    "meetingCount": 3,
+    "iterationCount": 2,
     "dominantStyle": "engaging",
-    "styleStrength": 100,
-    "trend": null,
-    "text": "【第 1 次討論風格分析】\n\n🎯 主要風格: 擅長營造互動氛圍，激發參與者積極性 (100% 傾向)\n\n📊 當前表現:\n• 平均參與者: 0.0 人\n• 平均討論量: 1.0 條留言\n• 互動活躍度: 100%\n• 參與平衡度: 100%\n\n\n\n💡 成功營造了活躍且平衡的討論環境"
+    "styleStrength": 33,
+    "trend": "討論較溫和",
+    "text": "【第 3 次討論風格分析】\n\n🎯 主要風格: 擅長營造互動氛圍，激發參與者積極性 (33% 傾向)\n\n📊 當前表現:\n• 平均參與者: 0.0 人\n• 平均討論量: 0.3 條留言\n• 互動活躍度: 33%\n• 參與平衡度: 100%\n\n📈 變化趨勢: 討論較溫和\n\n💡 成功營造了活躍且平衡的討論環境"
   },
   "metadata": {
     "hostId": "host_default",
     "userAgent": "MBBuddy_Host",
-    "iterationCount": 1
+    "iterationCount": 3
   }
 }

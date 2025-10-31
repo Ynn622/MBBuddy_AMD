@@ -69,11 +69,11 @@
           v-model="form.default_model"
           @change="checkModelType"
         >
-          <optgroup label="GPT-5 系列 (新端點)">
+          <!-- <optgroup label="GPT-5 系列 (新端點)">
             <option value="gpt-5-mini">gpt-5-mini</option>
             <option value="gpt-5">gpt-5</option>
             <option value="gpt-5-turbo">gpt-5-turbo</option>
-          </optgroup>
+          </optgroup> -->
           <optgroup label="GPT-4 系列">
             <option value="gpt-4o-mini">gpt-4o-mini</option>
             <option value="gpt-4o">gpt-4o</option>
@@ -113,10 +113,13 @@
           id="model"
           v-model="form.default_model" 
           type="text" 
-          :placeholder="'Llama-3.2-1B-Instruct-Hybrid'"
+          :placeholder="'Qwen-2.5-3B-Instruct-NPU'"
+          readonly
+          disabled
+          class="readonly-input"
         />
         <small class="model-note">
-          支援所有 Lemonade Server 模型
+          ⚠️ 請先輸入 OpenAI API Key 才能選擇模型
         </small>
       </div>
 
@@ -432,6 +435,14 @@ h3 {
   background-color: #f0f0f0;
   cursor: not-allowed;
   color: #999;
+}
+
+.form-group input.readonly-input {
+  background-color: #f8f9fa;
+  cursor: not-allowed;
+  color: #adb5bd;
+  border-color: #dee2e6;
+  font-style: italic;
 }
 
 .form-group small {

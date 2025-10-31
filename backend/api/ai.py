@@ -8,7 +8,15 @@ from pydantic import BaseModel
 import json
 from typing import List, Optional
 from .data_store import ROOMS, topics, votes
-from utility.lemonade_client import lemonade_client
+from utility.smart_ai_client import (
+    get_smart_client, 
+    get_available_models, 
+    set_openai_model, 
+    get_completion_params,
+    OPENAI_MODELS, 
+    DEFAULT_OPENAI_MODEL, 
+    DEFAULT_LEMONADE_MODEL
+)
 from utility.amd_config import amd_config
 from utility.prompts import prompt_builder, topic_parser
 from utility.logger import get_logger
@@ -56,12 +64,22 @@ class ConfigRequest(BaseModel):
 async def get_ai_config():
     """獲取當前 AI 服務配置"""
     try:
+        import os
+        api_key = os.getenv("OPENAI_API_KEY", "lemonade")
+        is_openai = api_key.startswith("sk-")
+        
+        # 取得當前模型設定
+        current_model = os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL) if is_openai else DEFAULT_LEMONADE_MODEL
+        
+        # 取得可用模型
+        available = get_available_models()
+        
         return {
-            "base_url": amd_config.openai_base_url,
-            "api_key_set": bool(amd_config.openai_api_key),
-            "api_key_masked": f"{amd_config.openai_api_key[:4]}****" if amd_config.openai_api_key else None,
-            "current_model": lemonade_client.current_model,
-            "model_loaded": lemonade_client.is_model_loaded,
+            "mode": "OpenAI" if is_openai else "Lemonade",
+            "api_key_set": bool(api_key),
+            "api_key_masked": f"{api_key[:4]}****" if api_key else None,
+            "current_model": current_model,
+            "available_models": available.get("models") if is_openai else None,
             "platform": "AMD Ryzen AI" if amd_config.is_amd_platform else "Generic"
         }
     except Exception as e:
@@ -72,77 +90,52 @@ async def get_ai_config():
 async def update_ai_config(config: ConfigRequest):
     """
     更新 AI 服務配置
-    
-    可以更新:
-    - base_url: API 基礎 URL (例如: http://localhost:8000/api)
-      - 如果 api_key 以 "sk-" 開頭（OpenAI key），會自動使用 https://api.openai.com/v1
-      - GPT-5 模型會自動使用 https://api.openai.com/v1/response
-    - api_key: API 密鑰
-    - default_model: 預設使用的模型
-    - endpoint_type: 端點類型 ("standard" 或 "response")
+    - api_key: 設定 OpenAI API Key (以 sk- 開頭會自動切換到 OpenAI 模式)
+    - default_model: 設定要使用的模型 (OpenAI 模式下可選擇不同模型)
     """
     try:
+        import os
         updated_fields = []
-        need_reinit_client = False
-        
-        # 檢測是否為 OpenAI API key（以 "sk-" 開頭）
-        is_openai_key = config.api_key and config.api_key.startswith("sk-")
-        
-        # 檢測是否為 GPT-5 模型
-        is_gpt5_model = config.default_model and ("gpt-5" in config.default_model.lower() or "gpt5" in config.default_model.lower())
         
         # 更新 api_key
         if config.api_key is not None:
+            os.environ["OPENAI_API_KEY"] = config.api_key
             amd_config.openai_api_key = config.api_key
-            amd_config.lemonade_api_key = config.api_key
             updated_fields.append("api_key")
-            need_reinit_client = True
             logger.info("更新 api_key: ****")
         
-        # 更新 base_url（根據模型類型自動選擇）
-        if config.base_url is not None:
-            amd_config.openai_base_url = config.base_url
-            amd_config.lemonade_base_url = config.base_url
-            updated_fields.append("base_url")
-            need_reinit_client = True
-            logger.info(f"更新 base_url: {config.base_url}")
-        elif is_openai_key:
-            amd_config.openai_base_url = "https://api.openai.com/v1"
-            amd_config.lemonade_base_url = "https://api.openai.com/v1"
-            updated_fields.append("base_url (auto-standard)")
-            logger.info("檢測到 OpenAI API key，自動設定 base_url: https://api.openai.com/v1")
-            need_reinit_client = True
-        
-        # 如果更新了 base_url 或 api_key，先重新初始化客戶端
-        if need_reinit_client:
-            await lemonade_client.close()
-            lemonade_client._client = None  # 強制重新創建客戶端
-            lemonade_client.is_model_loaded = False
-            lemonade_client.current_model = None
-            logger.info("客戶端已重新初始化")
-        
-        # 更新 default_model（在重新初始化客戶端之後）
+        # 更新 default_model (如果有指定)
         if config.default_model is not None:
-            # 載入新模型
-            success = await lemonade_client.load_model(config.default_model)
-            if success:
-                updated_fields.append("default_model")
-                logger.info(f"更新並載入模型: {config.default_model}")
+            # 檢查是否為 OpenAI 模式
+            api_key = config.api_key or os.getenv("OPENAI_API_KEY", "lemonade")
+            is_openai = api_key.startswith("sk-")
+            
+            if is_openai:
+                # OpenAI 模式 - 設定模型
+                if config.default_model in OPENAI_MODELS:
+                    set_openai_model(config.default_model)
+                    updated_fields.append("default_model")
+                    logger.info(f"更新 OpenAI 模型: {config.default_model}")
+                else:
+                    logger.warning(f"模型 {config.default_model} 不在推薦列表中，但仍會嘗試使用")
+                    set_openai_model(config.default_model)
+                    updated_fields.append("default_model")
             else:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"無法載入模型 {config.default_model}"
-                )
+                logger.info(f"Lemonade 模式下模型由 Server 管理，忽略 default_model 參數")
+        
+        # 取得最新配置
+        api_key = os.getenv("OPENAI_API_KEY", "lemonade")
+        is_openai = api_key.startswith("sk-")
+        current_model = os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL) if is_openai else DEFAULT_LEMONADE_MODEL
         
         return {
             "status": "success",
-            "message": f"已更新配置: {', '.join(updated_fields)}",
+            "message": f"已更新配置: {', '.join(updated_fields)}" if updated_fields else "無變更",
             "updated_fields": updated_fields,
             "current_config": {
-                "base_url": amd_config.openai_base_url,
-                "api_key_set": bool(amd_config.openai_api_key),
-                "current_model": lemonade_client.current_model,
-                "model_loaded": lemonade_client.is_model_loaded
+                "mode": "OpenAI" if is_openai else "Lemonade",
+                "api_key_set": bool(api_key) and api_key != "lemonade",
+                "current_model": current_model
             }
         }
         
@@ -156,27 +149,24 @@ async def update_ai_config(config: ConfigRequest):
 async def reset_ai_config():
     """重置 AI 服務配置到預設值"""
     try:
-        # 重置到環境變數或預設值
         import os
-        amd_config.openai_base_url = os.getenv("OPENAI_BASE_URL", "http://localhost:8000/api")
-        amd_config.openai_api_key = os.getenv("OPENAI_API_KEY", "lemonade")
-        amd_config.lemonade_base_url = amd_config.openai_base_url
-        amd_config.lemonade_api_key = amd_config.openai_api_key
+        # 重置環境變數
+        if "OPENAI_API_KEY" in os.environ:
+            del os.environ["OPENAI_API_KEY"]
+        if "OPENAI_MODEL" in os.environ:
+            del os.environ["OPENAI_MODEL"]
         
-        # 關閉並重置客戶端
-        await lemonade_client.close()
-        lemonade_client._client = None
-        lemonade_client.is_model_loaded = False
-        lemonade_client.current_model = None
+        amd_config.openai_api_key = "lemonade"
         
         logger.info("配置已重置到預設值")
         
         return {
             "status": "success",
-            "message": "配置已重置到預設值",
+            "message": "配置已重置到預設值 (使用 Lemonade Server)",
             "current_config": {
-                "base_url": amd_config.openai_base_url,
-                "api_key_set": bool(amd_config.openai_api_key)
+                "mode": "Lemonade",
+                "api_key_set": False,
+                "current_model": DEFAULT_LEMONADE_MODEL
             }
         }
         
@@ -190,44 +180,57 @@ async def reset_ai_config():
 async def check_ai_health():
     """檢查 AI 服務健康狀態"""
     try:
-        health = await lemonade_client.check_health()
-        models = await lemonade_client.list_models()
+        import os
+        api_key = os.getenv("OPENAI_API_KEY", "lemonade")
+        is_openai = api_key.startswith("sk-")
+        
+        client, model = get_smart_client()
+        
+        # 簡單測試
+        try:
+            models = client.models.list()
+            model_count = len(list(models.data))
+        except:
+            model_count = 0
         
         return {
-            "status": "healthy" if health else "unhealthy",
-            "backend": "AMD Lemonade Server",
+            "status": "healthy",
+            "backend": "OpenAI" if is_openai else "AMD Lemonade Server",
             "platform": "AMD Ryzen AI" if amd_config.is_amd_platform else "Generic",
-            "model_loaded": lemonade_client.is_model_loaded,
-            "current_model": lemonade_client.current_model,
-            "available_models": len(models),
-            "lemonade_url": amd_config.lemonade_base_url
+            "current_model": model,
+            "available_models": model_count
         }
     except Exception as e:
         logger.error(f"健康檢查失敗: {e}")
         return {
             "status": "error",
-            "backend": "AMD Lemonade Server",
             "error": str(e)
         }
 
 @router.get("/test_connection")
 async def test_lemonade_connection():
-    """測試 Lemonade Server 連接"""
+    """測試 AI 服務連接"""
     try:
-        health = await lemonade_client.check_health()
-        if health:
-            models = await lemonade_client.list_models()
-            return {
-                "status": "success",
-                "message": "Lemonade Server 連接正常",
-                "available_models": len(models),
-                "models": [m.get("id", "unknown") for m in models[:5]]
-            }
-        else:
-            return {
-                "status": "error",
-                "message": "Lemonade Server 健康檢查失敗"
-            }
+        client, model = get_smart_client()
+        
+        # 測試簡單請求
+        params = get_completion_params(
+            model=model,
+            max_tokens=10,
+            messages=[{"role": "user", "content": "Hi"}]
+        )
+        completion = client.chat.completions.create(**params)
+        
+        import os
+        api_key = os.getenv("OPENAI_API_KEY", "lemonade")
+        is_openai = api_key.startswith("sk-")
+        
+        return {
+            "status": "success",
+            "message": f"{'OpenAI' if is_openai else 'Lemonade Server'} 連接正常",
+            "model": model,
+            "test_response": completion.choices[0].message.content
+        }
     except Exception as e:
         logger.error(f"連接測試失敗: {e}")
         raise HTTPException(status_code=500, detail=f"連接測試失敗: {str(e)}")
@@ -238,24 +241,19 @@ async def test_lemonade_connection():
 async def ask_ai(req: AskRequest):
     """AI 問答"""
     try:
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            logger.info(f"載入預設模型: {default_model}")
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
+        client, model = get_smart_client()
         
         # 生成回答
-        answer = await lemonade_client.generate(
-            prompt=req.prompt,
+        params = get_completion_params(
+            model=model,
             max_tokens=1024,
+            messages=[{"role": "user", "content": req.prompt}],
             temperature=0.7
         )
+        completion = client.chat.completions.create(**params)
         
+        answer = completion.choices[0].message.content
         return {"answer": answer}
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"AI 處理失敗: {e}")
         raise HTTPException(status_code=500, detail=f"AI 處理失敗: {str(e)}")
@@ -278,20 +276,18 @@ async def summary_ai(req: SummaryRequest):
         if prompt.startswith("錯誤"):
             return {"summary": prompt}
 
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
+        client, model = get_smart_client()
 
         # 生成總結
-        summary_text = await lemonade_client.generate(
-            prompt=prompt,
+        params = get_completion_params(
+            model=model,
             max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.7
         )
-
+        completion = client.chat.completions.create(**params)
+        
+        summary_text = completion.choices[0].message.content
         return {"summary": summary_text}
         
     except Exception as e:
@@ -351,21 +347,20 @@ async def generate_ai_topics(req: GenerateTopicsRequest):
         if prompt.startswith("錯誤"):
             return {"topics": [prompt]}
 
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
+        client, model = get_smart_client()
 
         # 生成主題
-        raw_text = await lemonade_client.generate(
-            prompt=prompt,
+        params = get_completion_params(
+            model=model,
             max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.8
         )
-
+        completion = client.chat.completions.create(**params)
+        
+        raw_text = completion.choices[0].message.content
         print(raw_text)
+        
         # 解析主題
         generated_topics = topic_parser.parse_topics_from_response(raw_text, topic_count)
         return {"topics": generated_topics}
@@ -385,8 +380,7 @@ async def generate_single_topic(req: GenerateSingleTopicRequest):
         # 檢查討論室是否存在
         if room_code not in ROOMS:
             logger.error(f"找不到房間 {room_code}，現有房間: {list(ROOMS.keys())}")
-            return {"topic": f"錯誤：找不到指定的討論室 '{room_code}'。"
-        }
+            return {"topic": f"錯誤：找不到指定的討論室 '{room_code}'。"}
         
         # 建立 prompt
         prompt = prompt_builder.build_single_topic_generation_prompt(room_code, req.custom_prompt)
@@ -394,21 +388,19 @@ async def generate_single_topic(req: GenerateSingleTopicRequest):
         if prompt.startswith("錯誤"):
             return {"topic": prompt}
 
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            logger.info(f"載入預設模型: {default_model}")
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
+        client, model = get_smart_client()
 
         # 生成主題
         logger.info(f"開始生成主題，prompt 長度: {len(prompt)}")
-        topic = await lemonade_client.generate(
-            prompt=prompt,
+        params = get_completion_params(
+            model=model,
             max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.8
         )
+        completion = client.chat.completions.create(**params)
+        
+        topic = completion.choices[0].message.content
 
         logger.info(f"主題生成完成: {topic[:50]}...")
         return {"topic": topic.strip()}
@@ -428,20 +420,18 @@ async def generate_questions_ai(req: QuestionsRequest):
             req.questions
         )
 
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
+        client, model = get_smart_client()
 
         # 生成問題
-        topic = await lemonade_client.generate(
-            prompt=prompt,
+        params = get_completion_params(
+            model=model,
             max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.8
         )
-
+        completion = client.chat.completions.create(**params)
+        
+        topic = completion.choices[0].message.content
         return {"topic": topic}
 
     except Exception as e:
@@ -454,23 +444,19 @@ async def generate_questions_ai(req: QuestionsRequest):
 async def get_ai_stats():
     """獲取 AI 服務統計信息"""
     try:
+        import os
+        api_key = os.getenv("OPENAI_API_KEY", "lemonade")
+        is_openai = api_key.startswith("sk-")
+        
         return {
-            "backend": "AMD Lemonade Server",
+            "backend": "OpenAI" if is_openai else "AMD Lemonade Server",
             "platform": "AMD Ryzen AI" if amd_config.is_amd_platform else "Generic",
-            "status": "運行中" if lemonade_client.is_model_loaded else "待機中",
-            "model_loaded": lemonade_client.is_model_loaded,
-            "current_model": lemonade_client.current_model,
-            "config": {
-                "max_tokens": amd_config.get_inference_config().get("max_tokens"),
-                "precision": amd_config.get_inference_config().get("precision"),
-                "use_npu": amd_config.get_inference_config().get("use_npu"),
-                "inference_mode": amd_config.get_inference_config().get("inference_mode")
-            }
+            "status": "運行中",
+            "current_model": "gpt-4o-mini" if is_openai else "Llama-3.2-1B-Instruct-Hybrid"
         }
     except Exception as e:
         logger.error(f"獲取統計失敗: {e}")
         return {
-            "backend": "AMD Lemonade Server",
             "status": "錯誤",
             "error": str(e)
         }
@@ -479,16 +465,22 @@ async def get_ai_stats():
 async def list_models():
     """列出所有可用的模型"""
     try:
-        # 從 Lemonade Server 獲取
-        server_models = await lemonade_client.list_models()
+        import os
+        api_key = os.getenv("OPENAI_API_KEY", "lemonade")
+        is_openai = api_key.startswith("sk-")
         
-        # 從配置獲取推薦模型
-        recommended = amd_config.get_model_config()["recommended_models"]
+        client, model = get_smart_client()
+        
+        try:
+            models_list = client.models.list()
+            server_models = [{"id": m.id, "object": m.object} for m in models_list.data]
+        except:
+            server_models = []
         
         return {
-            "server_models": server_models,
-            "recommended_models": recommended,
-            "current_model": lemonade_client.current_model
+            "mode": "OpenAI" if is_openai else "Lemonade",
+            "current_model": model,
+            "available_models": server_models[:10] if server_models else []
         }
     except Exception as e:
         logger.error(f"列出模型失敗: {e}")
@@ -496,33 +488,16 @@ async def list_models():
 
 @router.post("/load_model")
 async def load_model(model_name: str):
-    """載入指定的模型"""
-    try:
-        success = await lemonade_client.load_model(model_name)
-        if success:
-            return {
-                "status": "success",
-                "message": f"模型 {model_name} 載入成功",
-                "model": model_name
-            }
-        else:
-            raise HTTPException(status_code=500, detail="模型載入失敗")
-    except Exception as e:
-        logger.error(f"載入模型失敗: {e}")
-        raise HTTPException(status_code=500, detail=f"載入模型失敗: {str(e)}")
+    """載入指定的模型 (簡化版 - 不支援動態切換)"""
+    return {
+        "status": "info",
+        "message": "簡化版 AI 客戶端會自動選擇模型，無需手動載入"
+    }
 
 @router.post("/unload_model")
 async def unload_model():
-    """卸載當前模型"""
-    try:
-        success = await lemonade_client.unload_model()
-        if success:
-            return {
-                "status": "success",
-                "message": "模型已卸載"
-            }
-        else:
-            raise HTTPException(status_code=500, detail="模型卸載失敗")
-    except Exception as e:
-        logger.error(f"卸載模型失敗: {e}")
-        raise HTTPException(status_code=500, detail=f"卸載模型失敗: {str(e)}")
+    """卸載當前模型 (簡化版 - 不支援)"""
+    return {
+        "status": "info",
+        "message": "簡化版 AI 客戶端無需手動卸載模型"
+    }
