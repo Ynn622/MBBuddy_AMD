@@ -1,6 +1,6 @@
 """
 AI API 路由
-使用 AMD Ryzen AI 的 Lemonade Server 進行推理
+支援 Lemonade Server (本地) 和 OpenAI API (雲端)
 """
 
 from fastapi import APIRouter, HTTPException
@@ -8,6 +8,7 @@ from pydantic import BaseModel
 import json
 from typing import List, Optional
 from .data_store import ROOMS, topics, votes
+from utility.call_ai import ai_service
 from utility.lemonade_client import lemonade_client
 from utility.amd_config import amd_config
 from utility.prompts import prompt_builder, topic_parser
@@ -49,23 +50,44 @@ class GenerateSingleTopicRequest(BaseModel):
 async def check_ai_health():
     """檢查 AI 服務健康狀態"""
     try:
-        health = await lemonade_client.check_health()
-        models = await lemonade_client.list_models()
+        config = ai_service.get_config()
         
-        return {
-            "status": "healthy" if health else "unhealthy",
-            "backend": "AMD Lemonade Server",
+        # 基本信息
+        health_info = {
+            "status": "healthy",
+            "mode": config["mode"],
+            "model": config["model"],
             "platform": "AMD Ryzen AI" if amd_config.is_amd_platform else "Generic",
-            "model_loaded": lemonade_client.is_model_loaded,
-            "current_model": lemonade_client.current_model,
-            "available_models": len(models),
-            "lemonade_url": amd_config.lemonade_base_url
         }
+        
+        # Lemonade 特定信息
+        if config["mode"] == "lemonade":
+            try:
+                health = await lemonade_client.check_health()
+                models = await lemonade_client.list_models()
+                health_info.update({
+                    "lemonade_status": "healthy" if health else "unhealthy",
+                    "model_loaded": lemonade_client.is_model_loaded,
+                    "available_models": len(models),
+                    "lemonade_url": amd_config.lemonade_base_url
+                })
+            except Exception as e:
+                health_info.update({
+                    "lemonade_status": "error",
+                    "lemonade_error": str(e)
+                })
+        
+        # OpenAI 特定信息
+        elif config["mode"] == "openai":
+            health_info.update({
+                "openai_configured": config["openai_configured"]
+            })
+        
+        return health_info
     except Exception as e:
         logger.error(f"健康檢查失敗: {e}")
         return {
             "status": "error",
-            "backend": "AMD Lemonade Server",
             "error": str(e)
         }
 
@@ -97,22 +119,17 @@ async def test_lemonade_connection():
 async def ask_ai(req: AskRequest):
     """AI 問答"""
     try:
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            logger.info(f"載入預設模型: {default_model}")
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
-        
-        # 生成回答
-        answer = await lemonade_client.generate(
+        # 使用統一的 AI 服務
+        answer = await ai_service.generate_async(
             prompt=req.prompt,
             max_tokens=1024,
             temperature=0.7
         )
         
-        return {"answer": answer}
+        return {
+            "answer": answer,
+            "mode": ai_service.mode
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -137,21 +154,17 @@ async def summary_ai(req: SummaryRequest):
         if prompt.startswith("錯誤"):
             return {"summary": prompt}
 
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
-
-        # 生成總結
-        summary_text = await lemonade_client.generate(
+        # 使用統一的 AI 服務生成總結
+        summary_text = await ai_service.generate_async(
             prompt=prompt,
             max_tokens=2048,
             temperature=0.7
         )
 
-        return {"summary": summary_text}
+        return {
+            "summary": summary_text,
+            "mode": ai_service.mode
+        }
         
     except Exception as e:
         logger.error(f"總結生成失敗: {e}")
@@ -210,15 +223,8 @@ async def generate_ai_topics(req: GenerateTopicsRequest):
         if prompt.startswith("錯誤"):
             return {"topics": [prompt]}
 
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
-
-        # 生成主題
-        raw_text = await lemonade_client.generate(
+        # 使用統一的 AI 服務生成主題
+        raw_text = await ai_service.generate_async(
             prompt=prompt,
             max_tokens=1024,
             temperature=0.8
@@ -227,7 +233,10 @@ async def generate_ai_topics(req: GenerateTopicsRequest):
         print(raw_text)
         # 解析主題
         generated_topics = topic_parser.parse_topics_from_response(raw_text, topic_count)
-        return {"topics": generated_topics}
+        return {
+            "topics": generated_topics,
+            "mode": ai_service.mode
+        }
 
     except Exception as e:
         logger.error(f"AI 主題生成失敗: {e}")
@@ -244,8 +253,7 @@ async def generate_single_topic(req: GenerateSingleTopicRequest):
         # 檢查討論室是否存在
         if room_code not in ROOMS:
             logger.error(f"找不到房間 {room_code}，現有房間: {list(ROOMS.keys())}")
-            return {"topic": f"錯誤：找不到指定的討論室 '{room_code}'。"
-        }
+            return {"topic": f"錯誤：找不到指定的討論室 '{room_code}'。"}
         
         # 建立 prompt
         prompt = prompt_builder.build_single_topic_generation_prompt(room_code, req.custom_prompt)
@@ -253,24 +261,19 @@ async def generate_single_topic(req: GenerateSingleTopicRequest):
         if prompt.startswith("錯誤"):
             return {"topic": prompt}
 
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            logger.info(f"載入預設模型: {default_model}")
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
-
-        # 生成主題
+        # 使用統一的 AI 服務生成主題
         logger.info(f"開始生成主題，prompt 長度: {len(prompt)}")
-        topic = await lemonade_client.generate(
+        topic = await ai_service.generate_async(
             prompt=prompt,
             max_tokens=512,
             temperature=0.8
         )
 
         logger.info(f"主題生成完成: {topic[:50]}...")
-        return {"topic": topic.strip()}
+        return {
+            "topic": topic.strip(),
+            "mode": ai_service.mode
+        }
 
     except Exception as e:
         logger.error(f"單一主題生成失敗: {e}", exc_info=True)
@@ -287,21 +290,17 @@ async def generate_questions_ai(req: QuestionsRequest):
             req.questions
         )
 
-        # 確保模型已載入
-        if not lemonade_client.is_model_loaded:
-            default_model = amd_config.get_model_config()["recommended_models"][0]["name"]
-            success = await lemonade_client.load_model(default_model)
-            if not success:
-                raise HTTPException(status_code=500, detail="模型載入失敗")
-
-        # 生成問題
-        topic = await lemonade_client.generate(
+        # 使用統一的 AI 服務生成問題
+        topic = await ai_service.generate_async(
             prompt=prompt,
             max_tokens=1024,
             temperature=0.8
         )
 
-        return {"topic": topic}
+        return {
+            "topic": topic,
+            "mode": ai_service.mode
+        }
 
     except Exception as e:
         logger.error(f"問題生成失敗: {e}")
@@ -313,23 +312,40 @@ async def generate_questions_ai(req: QuestionsRequest):
 async def get_ai_stats():
     """獲取 AI 服務統計信息"""
     try:
-        return {
-            "backend": "AMD Lemonade Server",
+        config = ai_service.get_config()
+        
+        stats = {
+            "mode": config["mode"],
+            "model": config["model"],
             "platform": "AMD Ryzen AI" if amd_config.is_amd_platform else "Generic",
-            "status": "運行中" if lemonade_client.is_model_loaded else "待機中",
-            "model_loaded": lemonade_client.is_model_loaded,
-            "current_model": lemonade_client.current_model,
-            "config": {
-                "max_tokens": amd_config.get_inference_config().get("max_tokens"),
-                "precision": amd_config.get_inference_config().get("precision"),
-                "use_npu": amd_config.get_inference_config().get("use_npu"),
-                "inference_mode": amd_config.get_inference_config().get("inference_mode")
-            }
         }
+        
+        # Lemonade 特定統計
+        if config["mode"] == "lemonade":
+            stats.update({
+                "backend": "AMD Lemonade Server",
+                "status": "運行中" if lemonade_client.is_model_loaded else "待機中",
+                "model_loaded": lemonade_client.is_model_loaded,
+                "current_model": lemonade_client.current_model,
+                "config": {
+                    "max_tokens": amd_config.get_inference_config().get("max_tokens"),
+                    "precision": amd_config.get_inference_config().get("precision"),
+                    "use_npu": amd_config.get_inference_config().get("use_npu"),
+                    "inference_mode": amd_config.get_inference_config().get("inference_mode")
+                }
+            })
+        
+        # OpenAI 特定統計
+        elif config["mode"] == "openai":
+            stats.update({
+                "backend": "OpenAI API",
+                "status": "已配置" if config["openai_configured"] else "未配置",
+            })
+        
+        return stats
     except Exception as e:
         logger.error(f"獲取統計失敗: {e}")
         return {
-            "backend": "AMD Lemonade Server",
             "status": "錯誤",
             "error": str(e)
         }

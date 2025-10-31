@@ -1,6 +1,7 @@
 # backend/main.py
 from fastapi import FastAPI
 from api import ai
+from api import ai_config
 from fastapi.middleware.cors import CORSMiddleware
 from api import participants
 from api import network
@@ -103,6 +104,7 @@ app.add_middleware(
 
 app.include_router(participants.router)
 app.include_router(ai.router)
+app.include_router(ai_config.router)
 app.include_router(network.router)
 app.include_router(mindmap.router)
 app.include_router(host_style.router)
